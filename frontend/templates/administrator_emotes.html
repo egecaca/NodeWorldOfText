@@ -77,6 +77,9 @@ Manage Chat Emotes | Our World of Text
 					<td>
 						{{ img.len }}
 					</td>
+					<td>
+						<button onclick="delete_emote(this.dataset.name)" data-name="{{ img.name }}">Delete</button>
+					</td>
 				</tr>
 				{% endfor %}
 			</tbody>
@@ -136,7 +139,7 @@ Manage Chat Emotes | Our World of Text
 			data[3 + len + i] = img_data[i];
 		}
 		var xhr = new XMLHttpRequest();
-		xhr.open("POST", "/administrator/emotes/", true);
+		xhr.open("POST", "/administrator/emotes/upload", true);
 		xhr.setRequestHeader("X-CSRF-Token", csrftoken);
 		xhr.onload = function () {
 			server_pending.style.display = "none";
@@ -145,7 +148,7 @@ Manage Chat Emotes | Our World of Text
 			var res = xhr.responseText;
 			if (res == "DONE") {
 				server_success.style.display = "";
-				server_success.innerText = "File \"" + name + "\" uploaded successfully.";
+				server_success.innerText = "Emoji \"" + name + "\" uploaded successfully.";
 			} else {
 				server_error.style.display = "";
 				var err_msg = "Error";
@@ -156,6 +159,30 @@ Manage Chat Emotes | Our World of Text
 			}
 		}
 		xhr.send(data);
+	}
+
+	function delete_emote(name, showConfirmation = true) {
+		if (showConfirmation && !confirm(`Are you sure you want to delete the emoji "${name}"?`))
+			return;
+
+		var xhr = new XMLHttpRequest();
+		xhr.open("POST", "/administrator/emotes/delete", true);
+		xhr.setRequestHeader("X-CSRF-Token", csrftoken);
+		xhr.onload = function () {
+			var res = xhr.responseText;
+			if (res == "DONE") {
+				location.reload();
+			} else {
+				var err_msg = "Error";
+				if (res == "NO_NAME") {
+					err_msg = "No file name given.";
+				} else if (res == "NO_ENT") {
+					err_msg = "The file name does not exist.";
+				}
+				alert(err_msg);
+			}
+		}
+		xhr.send(name);
 	}
 </script>
 {% endblock %}

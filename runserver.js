@@ -1149,7 +1149,7 @@ function createEndpoints(server) {
 	server.registerEndpoint("administrator/users/by_username/*", pages.admin.users_by_username);
 	server.registerEndpoint("administrator/users/by_id/*", pages.admin.users_by_id);
 	server.registerEndpoint("administrator/backgrounds", pages.admin.backgrounds, { binary_post_data: true });
-	server.registerEndpoint("administrator/emotes", pages.admin.emotes, { binary_post_data: true });
+	server.registerEndpoint("administrator/emotes/*", pages.admin.emotes, { binary_post_data: true });
 	server.registerEndpoint("administrator/manage_ranks", pages.admin.manage_ranks);
 	server.registerEndpoint("administrator/set_custom_rank/*", pages.admin.set_custom_rank);
 	server.registerEndpoint("administrator/user_list", pages.admin.user_list);
