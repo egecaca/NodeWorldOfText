@@ -106,7 +106,8 @@ Manage Chat Emotes | Our World of Text
 			img_data = new Uint8Array(fReader.result);
 			var name = back_input.files[0].name;
 			var ext = name.split(".").slice(-1)[0].toLowerCase();
-			if (!img_name.value) img_name.value = name;
+			var bareName = name.split(".")[0]; // remove file extension from emote name
+			if (!img_name.value) img_name.value = bareName;
 			if (ext == "png") {
 				rd_png.checked = true;
 				rd_jpg.checked = false;
