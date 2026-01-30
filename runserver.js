@@ -98,6 +98,7 @@ var serverDBPath   = settings.paths.database;
 var editsDBPath    = settings.paths.edits;
 var chatDBPath     = settings.paths.chat_history;
 var imageDBPath    = settings.paths.images;
+var emoteDBPath	   = settings.paths.emotes;
 var miscDBPath     = settings.paths.misc;
 var staticNumsPath = settings.paths.static_shortcuts;
 var restrPath      = settings.paths.restr;
@@ -156,6 +157,7 @@ var db,
 	db_edits,
 	db_chat,
 	db_img,
+	db_emotes,
 	db_misc;
 
 // Global
@@ -558,6 +560,7 @@ var pages = {
 	admin: {
 		administrator: require("./backend/pages/admin/administrator.js"),
 		backgrounds: require("./backend/pages/admin/backgrounds.js"),
+		emotes: require("./backend/pages/admin/emotes.js"),
 		manage_ranks: require("./backend/pages/admin/manage_ranks.js"),
 		set_custom_rank: require("./backend/pages/admin/set_custom_rank.js"),
 		user: require("./backend/pages/admin/user.js"),
@@ -570,6 +573,7 @@ var pages = {
 	other: {
 		ipaddress: require("./backend/pages/other/ipaddress.js"),
 		load_backgrounds: require("./backend/pages/other/load_backgrounds.js"),
+		load_emotes: require("./backend/pages/other/load_emotes.js"),
 		random_color: require("./backend/pages/other/random_color.js"),
 		test: require("./backend/pages/other/test.js")
 	},
@@ -751,12 +755,14 @@ function loadDbSystems() {
 	var edits_db = new sql.Database(editsDBPath);
 	var chat_history = new sql.Database(chatDBPath);
 	var image_db = new sql.Database(imageDBPath);
+	var emote_db = new sql.Database(emoteDBPath);
 	var misc_db = new sql.Database(miscDBPath);
 
 	db = new AsyncDBManager(database);
 	db_edits = new AsyncDBManager(edits_db);
 	db_chat = new AsyncDBManager(chat_history);
 	db_img = new AsyncDBManager(image_db);
+	db_emotes = new AsyncDBManager(emote_db);
 	db_misc = new AsyncDBManager(misc_db);
 }
 
@@ -872,9 +878,11 @@ async function initializeServer() {
 	await initialize_ranks_db();
 	await initialize_edits_db();
 	await initialize_image_db();
+	await initialize_emote_db();
 
 	global_data.db = db;
 	global_data.db_img = db_img;
+	global_data.db_emotes = db_emotes;
 	global_data.db_misc = db_misc;
 	global_data.db_edits = db_edits;
 	global_data.db_chat = db_chat;
@@ -935,6 +943,12 @@ async function initialize_edits_db() {
 async function initialize_image_db() {
 	if(!await db_img.get("SELECT name FROM sqlite_master WHERE type='table' AND name='images'")) {
 		await db_img.run("CREATE TABLE 'images' (id INTEGER NOT NULL PRIMARY KEY, name TEXT, date_created INTEGER, mime TEXT, data BLOB)");
+	}
+}
+
+async function initialize_emote_db() {
+	if(!await db_emotes.get("SELECT name FROM sqlite_master WHERE type='table' AND name='emotes'")) {
+		await db_emotes.run("CREATE TABLE 'emotes' (id INTEGER NOT NULL PRIMARY KEY, name TEXT, date_created INTEGER, mime TEXT, data BLOB)");
 	}
 }
 
@@ -1135,6 +1149,7 @@ function createEndpoints(server) {
 	server.registerEndpoint("administrator/users/by_username/*", pages.admin.users_by_username);
 	server.registerEndpoint("administrator/users/by_id/*", pages.admin.users_by_id);
 	server.registerEndpoint("administrator/backgrounds", pages.admin.backgrounds, { binary_post_data: true });
+	server.registerEndpoint("administrator/emotes", pages.admin.emotes, { binary_post_data: true });
 	server.registerEndpoint("administrator/manage_ranks", pages.admin.manage_ranks);
 	server.registerEndpoint("administrator/set_custom_rank/*", pages.admin.set_custom_rank);
 	server.registerEndpoint("administrator/user_list", pages.admin.user_list);
@@ -1151,6 +1166,7 @@ function createEndpoints(server) {
 
 	server.registerEndpoint("other/random_color", pages.other.random_color, { no_login: true });
 	server.registerEndpoint("other/backgrounds/*", pages.other.load_backgrounds, { no_login: true });
+  	server.registerEndpoint("other/emotes/*", pages.other.load_emotes, { no_login: true });
 	server.registerEndpoint("other/test/*", pages.other.test, { no_login: true });
 	server.registerEndpoint("other/ipaddress", pages.other.ipaddress);
 
@@ -2351,6 +2367,7 @@ var global_data = {
 	website: settings.website,
 	db: null,
 	db_img: null,
+	db_emotes: null,
 	db_misc: null,
 	db_edits: null,
 	db_chat: null,

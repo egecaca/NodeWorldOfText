@@ -511,7 +511,6 @@ a:visited {
 	text-overflow: ellipsis;
 }
 .chat_emote {
-	background: url(/static/emotes.png);
 	background-size: auto 400%;
 	height: 16px;
 	vertical-align: middle;

@@ -45,6 +45,7 @@
 		"database": "../nwotdata/nwot.sqlite",
 		"edits": "../nwotdata/edits.sqlite",
 		"images": "../nwotdata/images.sqlite",
+		"emotes": "../nwotdata/emotes.sqlite",
 		"misc": "../nwotdata/misc.sqlite",
 		"chat_history": "../nwotdata/chat_history.sqlite",
 		"log": "../nwotdata/nwot_log.log",

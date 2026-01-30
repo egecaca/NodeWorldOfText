@@ -777,7 +777,7 @@ function addChat(chatfield, id, type, nickname, message, realUsername, op, admin
 	insertNewChatElements();
 }
 
-function buildChatElement(field, id, type, nickname, message, realUsername, op, admin, staff, color, date, dataObj) {
+async function buildChatElement(field, id, type, nickname, message, realUsername, op, admin, staff, color, date, dataObj) {
 	var dateStr = "";
 	if(date) dateStr = convertToDate(date);
 	var pm = dataObj.privateMessage;
@@ -919,20 +919,23 @@ function buildChatElement(field, id, type, nickname, message, realUsername, op, 
 					continue;
 				}
 				emoteBuffer += chr;
-				if(emoteMode) {
+				if (emoteMode) {
 					var emoteName = emoteBuffer.slice(1, -1);
-					if(emoteList.hasOwnProperty(emoteName)) {
-						var position = emoteList[emoteName];
-						var ePosX = position[0] / 2;
-						var ePosY = position[1] / 2;
-						var eWidth = (position[2] ?? 32) / 2;
-						emoteMessage += "<div title=':" + emoteName
-							+ ":' class='chat_emote' style='background-position-x:-" + ePosX
-							+ "px;background-position-y:-" + ePosY
-							+ "px;width:" + eWidth + "px'></div>";
-					} else {
-						emoteMessage += emoteBuffer;
-					}
+					await new Promise((res, rej) => {
+						var img = new Image();
+						img.alt = emoteName;
+						img.title = `:${emoteName}:`
+						img.classList.add("chat_emote");
+						img.src = `/other/emotes/${emoteName}`;
+						img.onload = () => {
+							emoteMessage += img.outerHTML;
+							res();
+						}
+						img.onerror = () => {
+							emoteMessage += emoteBuffer;
+							res(); // just use alt
+						}
+					});
 					emoteMode = false;
 					emoteBuffer = "";
 				} else {
