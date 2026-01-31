@@ -31,6 +31,7 @@ const restrictions = require("./backend/utils/restrictions.js");
 const frameUtils   = require("./backend/framework/utils.js");
 const serverUtil   = require("./backend/framework/server.js");
 const templates    = require("./backend/framework/templates.js");
+const mime         = require("./backend/utils/mime.js");
 
 var trimHTML             = utils.trimHTML;
 var create_date          = utils.create_date;
@@ -949,6 +950,30 @@ async function initialize_image_db() {
 async function initialize_emote_db() {
 	if(!await db_emotes.get("SELECT name FROM sqlite_master WHERE type='table' AND name='emotes'")) {
 		await db_emotes.run("CREATE TABLE 'emotes' (id INTEGER NOT NULL PRIMARY KEY, name TEXT, date_created INTEGER, mime TEXT, data BLOB)");
+
+		// load default emotes into db
+		var emoteDir;
+		try {
+			emoteDir = fs.readdirSync("./backend/static/default_emotes/");
+		} catch (err) {
+			console.log(`Failed to enumerate default emoji directory: ${err}`);
+			return;
+		}
+		for (let fileName of emoteDir) {
+			var data;
+			try {
+				data = fs.readFileSync(`./backend/static/default_emotes/${fileName}`);
+			} catch (err) {
+				console.log(`Failed to read emoji file "${fileName}": ${err}`)
+			}
+			var cleanName = fileName.split(".")[0];
+			var extension = fileName.split(".")[fileName.split(".").length - 1];
+			if (["png", "jpg", "jpeg"].includes(extension.toLowerCase()) == false) {
+				console.log(`Disallowed emoji file extension: .${extension}`);
+				continue;
+			}
+			await db_emotes.run("INSERT INTO emotes VALUES(null, ?, ?, ?, ?)", [cleanName, Date.now(), mime(extension), data]);
+		}
 	}
 }
 
