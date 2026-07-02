@@ -8,6 +8,7 @@ var owot, owotCtx, textInput;
 var linkElm, linkDiv;
 var colorInput, colorInputBg;
 var colorShortcuts, colorShortcutsBg;
+var colorPaletteCont, bgColorPaletteCont;
 function init_dom() {
 	owot = document.getElementById("owot");
 	owot.style.display = "block";
@@ -97,6 +98,7 @@ var fontTemplate           = "$px 'Courier New', monospace";
 var specialFontTemplate    = "$px consolas, monospace";
 var fontOrder              = ["Courier New", "monospace"];
 var specialFontOrder       = ["consolas", "monospace"];
+var fontSize               = 16;
 var initiallyFetched       = false;
 var lastLinkHover          = null; // [tileX, tileY, charX, charY]
 var lastTileHover          = null; // [type, tileX, tileY, (charX, charY)]
@@ -181,6 +183,7 @@ var cursorOutlineEnabled   = false;
 var showCursorCoordinates  = false; // show cursor coords in coordinate bar
 var textDecorationsEnabled = true; // bold, italic, underline, and strikethrough
 var longpressInterval      = 800; // how many milliseconds to wait until mobile touch is registered as a longpress
+var suppressImages         = getStoredSuppressImages();
 
 var keyConfig = {
 	reset: "ESC",
@@ -270,7 +273,6 @@ defineElements({ // elm[<name>]
 	char_Y: byId("char_Y"),
 	char_X: byId("char_X"),
 	chatbar: byId("chatbar"),
-	color_input_form_input: byId("color_input_form_input"),
 	protect_precision: byId("protect_precision"),
 	erase_region: byId("erase_region"),
 	announce_container: byId("announce_container"),
@@ -278,6 +280,7 @@ defineElements({ // elm[<name>]
 	char_choice: byId("char_choice"),
 	menu_elm: byId("menu"),
 	nav_elm: byId("nav"),
+	menu_corner_area_elm: byId("menu_corner_area"),
 	coords: byId("coords"),
 	cursor_coords: byId("cursor_coords"),
 	cursor_on: byId("cursor_on"),
@@ -410,8 +413,7 @@ function addColorShortcuts() {
 	colorShortcuts.appendChild(rand);
 
 	var bgNone = document.createElement("span");
-	bgNone.id = "color_btn_no_cell";
-	bgNone.className = "color_btn";
+	bgNone.className = "color_btn color_btn_no_cell";
 	bgNone.style.backgroundColor = "#FFFFFF";
 	bgNone.title = "No background color";
 	bgNone.onclick = function() {
@@ -424,10 +426,13 @@ function addColorShortcuts() {
 
 var draggable_element_mousemove = [];
 var draggable_element_mouseup = [];
-function draggable_element(dragger, dragged, exclusions, onDrag) {
+var draggable_element_index_max = 100;
+function makeElementDraggable(dragger, dragged, exclusions, onDrag) {
 	if(!dragged) {
 		dragged = dragger;
 	}
+	dragged.style.zIndex = draggable_element_index_max++;
+
 	var elmX = 0;
 	var elmY = 0;
 	var elmHeight = 0;
@@ -452,6 +457,8 @@ function draggable_element(dragger, dragged, exclusions, onDrag) {
 		dragging = true;
 		clickX = e.pageX;
 		clickY = e.pageY;
+
+		dragged.style.zIndex = draggable_element_index_max++;
 	});
 	// when the element is being dragged
 	draggable_element_mousemove.push(function(e, arg_pageX, arg_pageY) {
@@ -493,24 +500,118 @@ function draggable_element(dragger, dragged, exclusions, onDrag) {
 	});
 }
 
-function resizeChat(width, height) {
+function resizeElement(element, width, height, minWidth, minHeight) {
 	// default: 400 x 300
-	if(width < 350) width = 350;
-	if(height < 57) height = 57;
-	elm.chat_window.style.width = width + "px";
-	elm.chat_window.style.height = height + "px";
+	minWidth ||= 350;
+	minHeight ||= 57;
+	if(width < minWidth) width = minWidth;
+	if(height < minHeight) height = minHeight;
+	element.style.width = width + "px";
+	element.style.height = height + "px";
 	return [width, height];
 }
 
+function makeElementResizable(element) {
+	let resizeStatus = {
+		elementIsResizing: false
+	};
+
+	var state = 0;
+	var isDown = false;
+	var downX = 0;
+	var downY = 0;
+	var elmX = 0;
+	var elmY = 0;
+	var elementWidth = 0;
+	var elementHeight = 0;
+	element.addEventListener("mousemove", function(e) {
+		if(isDown) return;
+		var posX = e.pageX - element.offsetLeft;
+		var posY = e.pageY - element.offsetTop;
+		var top = (posY) <= 4;
+		var left = (posX) <= 3;
+		var right = (element.offsetWidth - posX) <= 4;
+		var bottom = (element.offsetHeight - posY) <= 5;
+		var cursor = "";
+		if(left || right) cursor = "ew-resize";
+		if(top || bottom) cursor = "ns-resize";
+		if((top && left) || (right && bottom)) cursor = "nwse-resize";
+		if((bottom && left) || (top && right)) cursor = "nesw-resize";
+		element.style.cursor = cursor;
+		state = bottom << 3 | right << 2 | left << 1 | top;
+	});
+	element.addEventListener("mousedown", function(e) {
+		downX = e.pageX;
+		downY = e.pageY;
+		if(state) {
+			// subtract 2 for the borders
+			elementWidth = element.offsetWidth - 2;
+			elementHeight = element.offsetHeight - 2;
+			elmX = element.offsetLeft;
+			elmY = element.offsetTop;
+			isDown = true;
+			resizeStatus.elementIsResizing = true;
+		}
+	});
+	document.addEventListener("mouseup", function() {
+		isDown = false;
+		resizeStatus.elementIsResizing = false;
+	});
+	document.addEventListener("mousemove", function(e) {
+		if(!isDown) return;
+		var offX = e.pageX - downX;
+		var offY = e.pageY - downY;
+		var resize_bottom = state >> 3 & 1;
+		var resize_right = state >> 2 & 1;
+		var resize_left = state >> 1 & 1;
+		var resize_top = state & 1;
+
+		var width_delta = 0;
+		var height_delta = 0;
+		var abs_top = element.offsetTop;
+		var abs_left = element.offsetLeft;
+		var snap_bottom = element.style.bottom == "0px";
+		var snap_right = element.style.right == "0px";
+
+		if(resize_top) {
+			height_delta = -offY;
+		} else if(resize_bottom) {
+			height_delta = offY;
+		}
+		if(resize_left) {
+			width_delta = -offX;
+		} else if(resize_right) {
+			width_delta = offX;
+		}
+		var res = resizeElement(element, elementWidth + width_delta, elementHeight + height_delta);
+		if(resize_top && !snap_bottom) {
+			element.style.top = (elmY + (elementHeight - res[1])) + "px";
+		}
+		if(resize_bottom && snap_bottom) {
+			element.style.bottom = "";
+			element.style.top = abs_top + "px";
+		}
+		if(resize_right && snap_right) {
+			element.style.right = "";
+			element.style.left = abs_left + "px";
+		}
+		if(resize_left && !snap_right) {
+			element.style.left = (elmX + (elementWidth - res[0])) + "px";
+		}
+	});
+
+	return resizeStatus;
+}
+
 function makeChatInteractive() {
-	draggable_element(elm.chat_window, null, [
+	makeElementDraggable(elm.chat_window, null, [
 		elm.chatbar, elm.chatsend, elm.chat_close, elm.chat_page_tab, elm.chat_global_tab, elm.page_chatfield, elm.global_chatfield
 	], function() {
 		if(chatResizing) {
 			return -1;
 		}
 	});
-	draggable_element(elm.confirm_js, null, [
+	makeElementDraggable(elm.confirm_js, null, [
 		elm.confirm_js_code
 	]);
 	// from chat.js
@@ -544,6 +645,50 @@ function storeConfig() {
 		cursorOutline: cursorOutlineEnabled
 	};
 	localStorage.setItem("config", JSON.stringify(conf));
+}
+
+function getStoredSuppressImages() {
+	var worldName = state.worldModel.name || "";
+	var enableByDefault = (worldName == "" || worldName == "main");
+	
+	if(!window.localStorage || !localStorage.getItem) {
+		return enableByDefault;
+	}
+	
+	var stored = localStorage.getItem("suppressImages");
+	if(stored == null) return enableByDefault;
+
+	var suppressed = {};
+	try {
+		suppressed = JSON.parse(stored);
+	} catch(e) {}
+	if(typeof suppressed == "object") {
+		let status = suppressed[worldName.toUpperCase()];
+		return Boolean(status);
+	}
+
+	return false;
+}
+
+function storeSuppressImages() {
+	if(!window.localStorage || !localStorage.setItem) return;
+
+	var worldName = state.worldModel.name || "";
+	var suppressed = {};
+
+	var stored = localStorage.getItem("suppressImages");
+	if(stored) {
+		try {
+			suppressed = JSON.parse(stored);
+		} catch(e) {}
+		if(!suppressed || typeof suppressed != "object" || Array.isArray(suppressed)) {
+			suppressed = {};
+		}
+	}
+
+	suppressed[worldName.toUpperCase()] = Boolean(suppressImages);
+
+	localStorage.setItem("suppressImages", JSON.stringify(suppressed));
 }
 
 function loadBackgroundData(cb, timeout_cb) {
@@ -637,7 +782,7 @@ function handleRegionSelection(coordA, coordB, regWidth, regHeight) {
 						if(link.type == "url") {
 							r_links.push("$u" + "\"" + escapeQuote(link.url) + "\"");
 						} else if(link.type == "coord") {
-							r_links.push("$c" + "[" + link.link_tileX + "," + link.link_tileY + "]");
+							r_links.push("$" + (link.relative?'C':'c') + "[" + link.link_tileX + "," + link.link_tileY + "]");
 						}
 					}
 				}
@@ -746,10 +891,8 @@ function updateScaleConsts() {
 	tileWidth = Math.ceil(tileW);
 	tileHeight = Math.ceil(tileH);
 
-	var fontSize = normFontSize(16 * zoom);
-
-	font = fontTemplate.replace("$", fontSize);
-	specialCharFont = specialFontTemplate.replace("$", fontSize);
+	font = fontTemplate.replace("$", normFontSize(fontSize * zoom));
+	specialCharFont = specialFontTemplate.replace("$", normFontSize(16 * zoom));
 
 	textRenderCanvas.width = tileWidth + 5;
 	textRenderCanvas.height = tileHeight + 5;
@@ -908,6 +1051,7 @@ var linkAuto = {
 	url: "",
 	coordTileX: 0,
 	coordTileY: 0,
+	relative: false,
 	lastPos: null,
 	active: false
 }
@@ -1123,7 +1267,7 @@ function mousemove_linkAuto() {
 			if(linkAuto.mode == 0) {
 				ar.push([linkAuto.url])
 			} else if(linkAuto.mode == 1) {
-				ar.push([linkAuto.coordTileX, linkAuto.coordTileY]);
+				ar.push([linkAuto.coordTileX, linkAuto.coordTileY, linkAuto.relative]);
 			}
 			linkAuto.selected[ctileY + "," + ctileX + "," + ccharY + "," + ccharX] = ar;
 		}
@@ -1178,6 +1322,7 @@ function keydown_linkAuto(e) {
 				link_type = "coord";
 				data.x = linkData[0];
 				data.y = linkData[1];
+				data.relative = linkData[2];
 			}
 
 			network.link({
@@ -1616,6 +1761,194 @@ function setupPoolCleanupInterval() {
 	}, 1000 * 10);
 }
 
+function setupImageChecker() {
+	let tileCache = new Array(9);
+	let cachedCenterX = null;
+	let cachedCenterY = null;
+	let stripColor = null;
+	let stripBgColor = null;
+	let stripWidth = 0;
+
+	let updateTileCache = (cx, cy) => {
+		if(cachedCenterX == cx && cachedCenterY == cy) return;
+		cachedCenterX = cx;
+		cachedCenterY = cy;
+		let idx = 0;
+		for(let ty = -1; ty <= 1; ty++)
+			for(let tx = -1; tx <= 1; tx++)
+				tileCache[idx++] = Tile.get(cx + tx, cy + ty);
+	};
+
+	let buildStrips = () => {
+		stripWidth = tileC + 4;
+		let len = 3 * stripWidth;
+		if(!stripColor || stripColor.length < len) {
+			stripColor = new Uint32Array(len);
+			stripBgColor = new Uint32Array(len);
+		}
+
+		for(let row = 0; row < 3; row++) {
+			let dy = row - 1; // -1, 0, +1
+			let rowBase = row * stripWidth;
+
+			let localRow, relTY;
+			if (dy < 0) {
+				relTY = -1;
+				localRow = tileR - 1; // last row of top neighbor
+			} else if (dy < tileR) {
+				relTY = 0;
+				localRow = dy;
+			} else {
+				relTY = 1;
+				localRow = 0;
+			}
+
+			for(let col = 0; col < stripWidth; col++) {
+				let sampleCol = col - 2; // absolute column relative to tile origin
+
+				let localCol, relTX;
+				if (sampleCol < 0) {
+					relTX = -1;
+					localCol = sampleCol + tileC;
+				} else if (sampleCol < tileC) {
+					relTX = 0;
+					localCol = sampleCol;
+				} else {
+					relTX = 1;
+					localCol = sampleCol - tileC;
+				}
+
+				let tile = tileCache[(relTY + 1) * 3 + (relTX + 1)];
+				let flatIdx = localRow * tileC + localCol;
+				let stripIdx = rowBase + col;
+
+				let fgColors = tile?.properties?.color;
+				stripColor[stripIdx] = (fgColors && fgColors[flatIdx] != null)
+					? fgColors[flatIdx] : 0;
+
+				let bgColors = tile?.properties?.bgcolor;
+				stripBgColor[stripIdx] = (bgColors && bgColors[flatIdx] != null)
+					? bgColors[flatIdx] : 0;
+			}
+		}
+	};
+
+	let makeFreq = () => {
+		let map = new Map();
+		let unique = 0;
+		return {
+			add(c) {
+				if(c == 0) return;
+				let n = map.get(c);
+				if(n == undefined) {
+					map.set(c, 1);
+					unique++;
+				} else {
+					map.set(c, n + 1);
+				}
+			},
+			remove(c) {
+				if(c == 0) return;
+				let n = map.get(c);
+				if(n == 1) {
+					map.delete(c);
+					unique--;
+				} else {
+					map.set(c, n - 1);
+				}
+			},
+			clear() {
+				map.clear();
+				unique = 0;
+			},
+			get count() {
+				return unique;
+			}
+		};
+	};
+
+	let fgFreq = makeFreq();
+	let bgFreq = makeFreq();
+
+	let addCol = (stripX) => {
+		fgFreq.add(stripColor[0 * stripWidth + stripX]);
+		fgFreq.add(stripColor[1 * stripWidth + stripX]);
+		fgFreq.add(stripColor[2 * stripWidth + stripX]);
+		bgFreq.add(stripBgColor[0 * stripWidth + stripX]);
+		bgFreq.add(stripBgColor[1 * stripWidth + stripX]);
+		bgFreq.add(stripBgColor[2 * stripWidth + stripX]);
+	};
+
+	let removeCol = (stripX) => {
+		fgFreq.remove(stripColor[0 * stripWidth + stripX]);
+		fgFreq.remove(stripColor[1 * stripWidth + stripX]);
+		fgFreq.remove(stripColor[2 * stripWidth + stripX]);
+		bgFreq.remove(stripBgColor[0 * stripWidth + stripX]);
+		bgFreq.remove(stripBgColor[1 * stripWidth + stripX]);
+		bgFreq.remove(stripBgColor[2 * stripWidth + stripX]);
+	};
+
+	w.on("tileDraw", function(data) {
+		if(!suppressImages) return;
+
+		let { tileX, tileY, tile } = data;
+		if(!tile) return;
+
+		let hasFg = !!tile.properties?.color;
+		let hasBg = !!tile.properties?.bgcolor;
+		if(!hasFg && !hasBg) return;
+
+		updateTileCache(tileX, tileY);
+		buildStrips();
+
+		let bitmapLen = Math.ceil(tileArea / 8);
+
+		if(hasFg) {
+			if (!tile.color_bitmap || tile.color_bitmap.length < bitmapLen) {
+				tile.color_bitmap = new Uint8Array(bitmapLen);
+			} else {
+				tile.color_bitmap.fill(0);
+			}
+		}
+		if(hasBg) {
+			if (!tile.bgcolor_bitmap || tile.bgcolor_bitmap.length < bitmapLen) {
+				tile.bgcolor_bitmap = new Uint8Array(bitmapLen);
+			} else {
+				tile.bgcolor_bitmap.fill(0);
+			}
+		}
+
+		let colorBitmap = tile.color_bitmap;
+		let bgcolorBitmap = tile.bgcolor_bitmap;
+
+		for(let cy = 0; cy < tileR; cy++) {
+			fgFreq.clear();
+			bgFreq.clear();
+			for(let col = 0; col <= 4; col++) {
+				addCol(col);
+			}
+
+			for(let cx = 0; cx < tileC; cx++) {
+				let idx = cy * tileC + cx;
+				let byte = idx >> 3;
+				let bit = 1 << (idx & 7);
+
+				if(hasFg && fgFreq.count > 5) {
+					colorBitmap[byte] |= bit;
+				}
+				if(hasBg && bgFreq.count > 5) {
+					bgcolorBitmap[byte] |= bit;
+				}
+
+				if(cx < tileC - 1) {
+					removeCol(cx);
+					addCol(cx + 5);
+				}
+			}
+		}
+	});
+}
+
 function checkTextColorOverride() {
 	textColorOverride = 0;
 	var public = 4;
@@ -1703,13 +2036,14 @@ function defaultStyles() {
 function manageCoordHash() {
 	if(!Permissions.can_go_to_coord(state.userModel, state.worldModel)) return;
 	try {
-		var coord = window.location.hash.match(/#x:-?\d+,y:-?\d+$/);
+		var coord = window.location.hash.match(/#x:-?[\d\.]+,y:-?[\d\.]+$/);
 		if(coord) {
-			coord = window.location.hash.split(/#x:|,y:/).slice(1).map(function(a) {
-				return parseInt(a, 10);
-			});
+			coord = window.location.hash.split(/#x:|,y:/).slice(1);
+			coord[0] = parseFloat(coord[0]);
+			coord[1] = parseFloat(coord[1]);
 			homeX = coord[0];
 			homeY = coord[1];
+			suppressImages = true;
 			w.doGoToCoord(coord[1], coord[0]);
 		}
 	} catch(e) {
@@ -1830,6 +2164,7 @@ function doLink() {
 	} else if(w.link_input_type == 1) {
 		data.x = w.coord_input_x;
 		data.y = w.coord_input_y;
+		data.relative = w.coord_input_relative
 		link_type = "coord";
 	}
 	network.link({
@@ -1950,7 +2285,7 @@ function renderCursor(coords) {
 	var newTileY = coords[1];
 	var tile = Tile.get(newTileX, newTileY);
 	if(!tile) return false;
-	if(window.dcm) return false; // TEMP
+	if(window.dcm || window.dcnn) return false; // TEMP
 	var writability = tile.properties.writability;
 	var thisTile = {
 		writability: writability,
@@ -2399,7 +2734,7 @@ function undoWrite() {
 		if(link.type == "url" && Permissions.can_urllink(state.userModel, state.worldModel)) {
 			linkQueue.push(["url", tileX, tileY, charX, charY, link.url]);
 		} else if(link.type == "coord" && Permissions.can_coordlink(state.userModel, state.worldModel)) {
-			linkQueue.push(["coord", tileX, tileY, charX, charY, link.link_tileX, link.link_tileY]);
+			linkQueue.push(["coord", tileX, tileY, charX, charY, link.link_tileX, link.link_tileY, link.relative]);
 		}
 	}
 	renderCursor([edit[0], edit[1], edit[2], edit[3]]);
@@ -2434,7 +2769,7 @@ function redoWrite() {
 		if(link.type == "url" && Permissions.can_urllink(state.userModel, state.worldModel)) {
 			linkQueue.push(["url", tileX, tileY, charX, charY, link.url]);
 		} else if(link.type == "coord" && Permissions.can_coordlink(state.userModel, state.worldModel)) {
-			linkQueue.push(["coord", tileX, tileY, charX, charY, link.link_tileX, link.link_tileY]);
+			linkQueue.push(["coord", tileX, tileY, charX, charY, link.link_tileX, link.link_tileY, link.relative]);
 		}
 	}
 	renderCursor([edit[0], edit[1], edit[2], edit[3]]);
@@ -2592,7 +2927,7 @@ function textcode_parser(value, coords, defaultColor, defaultBgColor) {
 				index += 2;
 				var lType = value[index];
 				index++;
-				if(lType == "c") { // coord
+				if(lType == "c" || lType == "C") { // coord (C = relative)
 					var strPoint = index;
 					var buf = "";
 					var mode = 0;
@@ -2617,6 +2952,7 @@ function textcode_parser(value, coords, defaultColor, defaultBgColor) {
 					buf = buf.split(",");
 					var coordTileX = parseFloat(buf[0].trim());
 					var coordTileY = parseFloat(buf[1].trim());
+					var relative = lType == "C";
 					var charPos = coordinateAdd(pos.tileX, pos.tileY, pos.charX, pos.charY,
 						off.tileX, off.tileY, off.charX, off.charY);
 					return {
@@ -2627,7 +2963,8 @@ function textcode_parser(value, coords, defaultColor, defaultBgColor) {
 						charX: charPos[2],
 						charY: charPos[3],
 						coord_tileX: coordTileX,
-						coord_tileY: coordTileY
+						coord_tileY: coordTileY,
+						relative: relative,
 					};
 				} else if(lType == "u") { // urllink
 					var strPoint = index;
@@ -2987,7 +3324,7 @@ function cyclePaste(parser, yieldItem) {
 		if(item.linkType == "url" && Permissions.can_urllink(state.userModel, state.worldModel)) {
 			linkQueue.push(["url", item.tileX, item.tileY, item.charX, item.charY, item.url]);
 		} else if(item.linkType == "coord" && Permissions.can_coordlink(state.userModel, state.worldModel)) {
-			linkQueue.push(["coord", item.tileX, item.tileY, item.charX, item.charY, item.coord_tileX, item.coord_tileY]);
+			linkQueue.push(["coord", item.tileX, item.tileY, item.charX, item.charY, item.coord_tileX, item.coord_tileY, item.relative]);
 		}
 		// a link was potentially put over a character that was changed to an identical character,
 		// meaning it did not get added to the undo buffer.
@@ -3456,9 +3793,13 @@ var actions = {
 	day: (args, coords) => w.day(),
 	theme: (args, coords) => {
 		var charInfo = getCharInfo(coords[0], coords[1], coords[2], coords[3]);
-		var restrict = state.worldModel.name == "" && charInfo.protection == 0;
+		var restrict = isMainPage() && charInfo.protection == 0;
 		if(restrict) {
-			var acpt = confirm("Do you want to perform this action?\n" + string);
+			var argstrings = [];
+			for (let value of Object.entries(args)) {
+				argstrings.push(`${value[0]}: ${value[1]}`);
+			}
+			var acpt = confirm("Do you want to change to this theme?\n" + argstrings.join(', '));
 			if(!acpt) {
 				return false;
 			}
@@ -3508,7 +3849,10 @@ function setupLinkElement() {
 		return false;
 	}
 	linkElm.onclick = function(e) {
+		var pageX = e.pageX * zoomRatio;
+		var pageY = e.pageY * zoomRatio;
 		if(linkParams.coord) {
+			updateHoveredLink(pageX, pageY, e);
 			coord_link_click(e);
 			return;
 		}
@@ -3563,7 +3907,7 @@ function setupLinkElement() {
 
 function coord_link_click(evt) {
 	if(!currentSelectedLink) return;
-	w.doGoToCoord(currentSelectedLink.link_tileY, currentSelectedLink.link_tileX);
+	w.doGoToCoord(currentSelectedLink.link_tileY, currentSelectedLink.link_tileX, currentSelectedLink.relative);
 }
 function url_link_click(evt) {
 	if(!currentSelectedLink) return;
@@ -3666,8 +4010,13 @@ function updateHoveredLink(mouseX, mouseY, evt, safe) {
 			linkElm.target = "";
 			linkElm.href = "javascript:void(0);";
 			linkElm.target = "";
-			var pos = link.link_tileX + "," + link.link_tileY;
-			linkElm.title = "Link to coordinates " + pos;
+			if(link.relative) {
+				let pos = ((link.link_tileX >= 0) ? "+" : "") + link.link_tileX + "," + ((link.link_tileY >= 0) ? "+" : "") + link.link_tileY;
+				linkElm.title = "Relative link to coordinates " + pos;
+			} else {
+				let pos = link.link_tileX + "," + link.link_tileY;
+				linkElm.title = "Link to coordinates " + pos;
+			}
 		}
 	} else {
 		currentSelectedLink = null;
@@ -3977,7 +4326,7 @@ function event_wheel(e) {
 	if(Modal.isOpen) return;
 	if(!scrollingEnabled) return; // return if disabled
 	// if not focused on canvas, don't scroll world
-	if(!closest(e.target, elm.main_view)) return;
+	if(!closest(e.target, elm.main_view) && !closest(e.target, elm.link_div)) return;
 	if(e.ctrlKey) return; // don't scroll if ctrl is down (zooming)
 	var deltaX = Math.trunc(e.deltaX);
 	var deltaY = Math.trunc(e.deltaY);
@@ -3996,6 +4345,7 @@ function event_wheel(e) {
 		deltaY: -deltaY
 	});
 	w.render();
+	e.preventDefault();
 }
 
 function event_wheel_zoom(e) {
@@ -5158,7 +5508,7 @@ function protectSelection() {
 }
 
 function buildMenu() {
-	menu = new Menu(elm.menu_elm, elm.nav_elm);
+	menu = new Menu(elm.menu_elm, elm.nav_elm, elm.menu_corner_area_elm);
 	w.menu = menu;
 	var homeLink = document.createElement("a");
 	var homeLinkIcon = document.createElement("img");
@@ -5224,6 +5574,13 @@ function buildMenu() {
 		w.disableColors();
 		setRedrawPatterned("square");
 	}, true);
+	menuOptions.colorsEnabled = menu.addCheckboxOption("Suppress images", function() {
+		w.enableImageSuppression();
+		setRedrawPatterned("square");
+	}, function() {
+		w.disableImageSuppression();
+		setRedrawPatterned("square");
+	}, suppressImages);
 	if(state.background) {
 		menuOptions.backgroundEnabled = menu.addCheckboxOption("Background", function() {
 			backgroundEnabled = true;
@@ -6249,11 +6606,8 @@ var networkHTTP = {
 			url: "/ajax/urllink/",
 			data: {
 				world: state.worldModel.name,
-				tileX: tileX,
-				tileY: tileY,
-				charX: charX,
-				charY: charY,
-				url: url
+				tileX, tileY, charX, charY,
+				url
 			},
 			done: function(data) {
 				if(callback) callback(data);
@@ -6263,18 +6617,14 @@ var networkHTTP = {
 			}
 		});
 	},
-	coordlink: function(tileX, tileY, charX, charY, link_tileX, link_tileY, callback) {
+	coordlink: function(tileX, tileY, charX, charY, link_tileX, link_tileY, relative, callback) {
 		ajaxRequest({
 			type: "POST",
 			url: "/ajax/coordlink/",
 			data: {
 				world: state.worldModel.name,
-				tileX: tileX,
-				tileY: tileY,
-				charX: charX,
-				charY: charY,
-				link_tileX: link_tileX,
-				link_tileY: link_tileY
+				tileX, tileY, charX, charY,
+				link_tileX, link_tileY, relative
 			},
 			done: function(data) {
 				if(callback) callback(data);
@@ -6384,7 +6734,7 @@ var network = {
 	link: function(position, type, args) {
 		// position: {tileX, tileY, charX, charY}
 		// type: <url, coord>
-		// args: {url} or {x, y}
+		// args: {url} or {x, y, relative}
 		var data = {
 			tileY: position.tileY,
 			tileX: position.tileX,
@@ -6402,6 +6752,7 @@ var network = {
 		} else if(type == "coord") {
 			data.link_tileX = args.x;
 			data.link_tileY = args.y;
+			data.relative = args.relative;
 		}
 		network.transmit({
 			kind: "link",
@@ -6549,6 +6900,20 @@ var network = {
 			kind: "stats",
 			id: cb_id // optional: number
 		});
+	},
+	config: function(param, value) {
+		/*
+			Supported configs:
+				- updates (bool) => receive any tile updates from the server
+				- localFilter (bool) => don't receive updates issued too far away
+				-- Superuser only:
+					- directAdminUpdates (bool) => receive direct edits with descriptive client data
+					- descriptiveCmd (bool) => populate cmd broadcasts with descriptive client data
+		*/
+		network.transmit({
+			kind: "config",
+			[param]: value
+		});
 	}
 };
 
@@ -6565,6 +6930,7 @@ Object.assign(w, {
 	url_input: "",
 	coord_input_x: 0,
 	coord_input_y: 0,
+	coord_input_relative: false,
 	link_input_type: 0, // 0 = link, 1 = coord,
 	protect_type: null, // null = unprotect, 0 = public, 1 = member, 2 = owner
 	protect_bg: "",
@@ -6644,14 +7010,19 @@ Object.assign(w, {
 	goToCoord: function() {
 		w.ui.coordGotoModal.open();
 	},
-	doGoToCoord: function(y, x) {
+	doGoToCoord: function(y, x, relative) {
 		var maxX = Number.MAX_SAFE_INTEGER / 160 / 4;
 		var maxY = Number.MAX_SAFE_INTEGER / 144 / 4;
 		if(x > maxX || x < -maxX || y > maxY || y < -maxY) {
 			return;
 		}
-		positionX = Math.floor(-x * tileW * coordSizeX);
-		positionY = Math.floor(y * tileH * coordSizeY);
+		if (relative) {
+			positionX += Math.floor(-x * tileW * coordSizeX);
+			positionY += Math.floor(y * tileH * coordSizeY);
+		} else {
+			positionX = Math.floor(-x * tileW * coordSizeX);
+			positionY = Math.floor(y * tileH * coordSizeY);
+		}
 		w.render();
 	},
 	doUrlLink: function(url) {
@@ -6671,15 +7042,17 @@ Object.assign(w, {
 		stopLinkUI();
 		w.ui.urlModal.open();
 	},
-	doCoordLink: function(y, x) {
+	doCoordLink: function(y, x, relative) {
 		linkAuto.active = true;
 		linkAuto.mode = 1;
 		linkAuto.coordTileY = y;
 		linkAuto.coordTileX = x;
+		linkAuto.relative = relative;
 
 		if(w.isLinking || w.isProtecting) return;
 		w.coord_input_x = x;
 		w.coord_input_y = y;
+		w.coord_input_relative = relative;
 		elm.owot.style.cursor = "pointer";
 		w.isLinking = true;
 		w.link_input_type = 1;
@@ -6882,6 +7255,16 @@ Object.assign(w, {
 	},
 	disableColors: function(nr) {
 		colorsEnabled = false;
+		if(!nr) w.redraw();
+	},
+	enableImageSuppression: function(nr) {
+		suppressImages = true;
+		storeSuppressImages();
+		if(!nr) w.redraw();
+	},
+	disableImageSuppression: function(nr) {
+		suppressImages = false;
+		storeSuppressImages();
 		if(!nr) w.redraw();
 	},
 	basic: function() {
@@ -7092,7 +7475,7 @@ function setupDOMEvents() {
 	document.addEventListener("touchend", event_touchend);
 	document.addEventListener("touchmove", event_touchmove, { passive: false });
 	document.addEventListener("wheel", event_wheel_zoom, { passive: false });
-	document.addEventListener("wheel", event_wheel);
+	document.addEventListener("wheel", event_wheel, { passive: false });
 	document.addEventListener("mousemove", event_mousemove);
 	document.addEventListener("keydown", event_keydown);
 	document.addEventListener("keyup", event_keyup);
@@ -7168,12 +7551,16 @@ function enableBgColorPicker() {
 function makeCoordLinkModal() {
 	var modal = new Modal();
 	modal.createForm();
-	modal.setFormTitle("Enter the coordinates to create a link to. You can then click on a letter to create the link.\n");
+	modal.setFormTitle("Enter the coordinates to create a link to. You can then click on a cell to create the link.\n");
 	var coordX = modal.addEntry("X", "text", "number").input;
 	var coordY = modal.addEntry("Y", "text", "number").input;
+	var relative = modal.addEntry("Relative", "checkbox").input;
+	relative.parentElement.title = "When checked, this coord link will teleport the user relative to the coordinates provided";
+	relative.type = "checkbox";
+	relative.style.width = "0.75em";
 	modal.setMaximumSize(360, 300);
 	modal.onSubmit(function() {
-		w.doCoordLink(parseFloat(coordY.value), parseFloat(coordX.value));
+		w.doCoordLink(parseFloat(coordY.value), parseFloat(coordX.value), relative.checked);
 	});
 	w.ui.coordLinkModal = modal;
 }
@@ -7223,11 +7610,11 @@ function buildBackgroundColorModal(modal) {
 	modal.onTabChange(function(evt) {
 		var tab = evt.id;
 		if(tab == "bg") {
-			colorShortcutsBg.style.display = "";
+			if(!Permissions.has_text_color_palette(state.userModel, state.worldModel)) colorShortcutsBg.style.display = "";
 			colorShortcuts.style.display = "none";
 		} else if(tab == "fg") {
 			colorShortcutsBg.style.display = "none";
-			colorShortcuts.style.display = "";
+			if(!Permissions.has_cell_color_palette(state.userModel, state.worldModel)) colorShortcuts.style.display = "";
 		}
 	});
 }
@@ -7258,6 +7645,7 @@ function resetColorModalVisibility() {
 function makeColorModal() {
 	var modal = new Modal();
 	modal.setMinimumSize(290, 128);
+	modal.setMaximumSize(800);
 	modal.createForm();
 	modal.setFormTitle("\n");
 	colorInput = modal.addEntry("Text color", "color").input;
@@ -7317,6 +7705,80 @@ function makeColorModal() {
 		modal.hideTab("fg");
 	}
 	w.ui.colorModal = modal;
+}
+
+function generateColorPaletteButtons(palette, isBg) {
+	let cont = document.createElement("div");
+	for(let i = 0; i < palette.length; i++) {
+		let elm = createColorButton(palette[i], isBg);
+		elm.style.width = "32px";
+		elm.style.height = "32px";
+		elm.style.borderRadius = "8px";
+		cont.appendChild(elm);
+	}
+	if(isBg) {
+		let bgNone = document.createElement("span");
+		bgNone.className = "color_btn color_btn_no_cell";
+		bgNone.style.backgroundColor = "#FFFFFF";
+		bgNone.title = "No background color";
+		bgNone.onclick = function() {
+			w.ui.colorModal.close(true); // close + cancel
+			disableBgColorPicker();
+			YourWorld.BgColor = -1;
+		}
+		bgNone.style.width = "32px";
+		bgNone.style.height = "32px";
+		bgNone.style.borderRadius = "8px";
+		cont.appendChild(bgNone);
+	}
+	return cont;
+}
+
+function updateColorModalPalette() {
+	let currentTab = w.ui.colorModal.currentTabCtx?.id;
+	if(Permissions.has_text_color_palette(state.userModel, state.worldModel)) {
+		if(w.ui.colorModal.tabIndex["fg"]) {
+			w.ui.colorModal.focusTab("fg");
+		}
+		colorShortcuts.style.display = "none";
+		w.ui.colorModal.hideForm();
+		if(colorPaletteCont) {
+			colorPaletteCont.remove();
+			colorPaletteCont = null;
+		}
+		colorPaletteCont = generateColorPaletteButtons(state.worldModel.color_palette);
+		w.ui.colorModal.appendContent(colorPaletteCont);
+	} else {
+		if(w.ui.colorModal.tabIndex["fg"]) {
+			w.ui.colorModal.focusTab("fg");
+		}
+		w.ui.colorModal.showForm();
+		if(colorPaletteCont) {
+			colorPaletteCont.style.display = "none";
+		}
+	}
+	if(w.ui.colorModal.tabIndex["bg"]) {
+		if(Permissions.has_cell_color_palette(state.userModel, state.worldModel)) {
+			w.ui.colorModal.focusTab("bg");
+			colorShortcutsBg.style.display = "none";
+			w.ui.colorModal.hideForm();
+			if(bgColorPaletteCont) {
+				bgColorPaletteCont.remove();
+				bgColorPaletteCont = null;
+			}
+			bgColorPaletteCont = generateColorPaletteButtons(state.worldModel.bg_color_palette, true);
+			w.ui.colorModal.appendContent(bgColorPaletteCont);
+		} else {
+			w.ui.colorModal.focusTab("bg");
+			w.ui.colorModal.showForm();
+			if(bgColorPaletteCont) {
+				bgColorPaletteCont.style.display = "none";
+			}
+		}
+	}
+	if(currentTab) {
+		w.ui.colorModal.focusTab(currentTab);
+	}
 }
 
 function makeSelectionModal() {
@@ -7588,6 +8050,7 @@ function reapplyProperties(props) {
 
 	updateScaleConsts();
 	resetColorModalVisibility();
+	updateColorModalPalette();
 	updateMenuEntryVisiblity();
 	updateWorldName();
 
@@ -7773,6 +8236,11 @@ var ws_functions = {
 		}
 		w.emit("afterTileUpdate", data);
 	},
+	tileUpdateDirect: function(data) {
+		if(w.wtwTracker) {
+			w.wtwTracker.handleUpdate(data);
+		}
+	},
 	write: function(data) {
 		if("request" in data) {
 			var id = data.request;
@@ -7809,7 +8277,7 @@ var ws_functions = {
 									tileX: tileX,
 									charY: charY,
 									charX: charX
-								}, "coord", { x: queueItem[5], y: queueItem[6] });
+								}, "coord", { x: queueItem[5], y: queueItem[6], relative: queueItem[7] });
 							}
 							linkQueue.splice(r, 1);
 							break;
@@ -7875,6 +8343,7 @@ var ws_functions = {
 	propUpdate: function(data) {
 		w.emit("propUpdate", data.props);
 		var props = data.props;
+		var paletteUpdated = false;
 		for(var p = 0; p < props.length; p++) {
 			var prop = props[p];
 			var type = prop.type;
@@ -7901,6 +8370,9 @@ var ws_functions = {
 				case "noCopy":
 					state.worldModel.no_copy = value;
 					break;
+				case "noAnonChat":
+					state.worldModel.no_anon_chat = value;
+					break;
 				case "chat":
 					state.worldModel.chat_permission = value;
 					elm.chatbar.disabled = !Permissions.can_chat(state.userModel, state.worldModel);
@@ -7911,10 +8383,12 @@ var ws_functions = {
 				case "colorText":
 					state.worldModel.color_text = value;
 					resetColorModalVisibility();
+					updateColorModalPalette();
 					break;
 				case "colorCell":
 					state.worldModel.color_cell = value;
 					resetColorModalVisibility();
+					updateColorModalPalette();
 					break;
 				case "quickErase":
 					state.worldModel.quick_erase = value;
@@ -7940,9 +8414,20 @@ var ws_functions = {
 				case "writeInt":
 					w.setFlushInterval(value);
 					break;
+				case "colorPalette":
+					state.worldModel.color_palette = value;
+					paletteUpdated = true;
+					break;
+				case "bgColorPalette":
+					state.worldModel.bg_color_palette = value;
+					paletteUpdated = true;
+					break;
 			}
 		}
 		updateMenuEntryVisiblity();
+		if(paletteUpdated) {
+			updateColorModalPalette();
+		}
 	},
 	chat: function(data) {
 		var type = chatType(data.registered, data.nickname, data.realUsername);
@@ -8087,6 +8572,7 @@ function begin() {
 	setupFlashAnimation();
 	setWriteInterval();
 	setupPoolCleanupInterval();
+	setupImageChecker();
 
 	makeCoordLinkModal();
 	makeCoordGotoModal();
@@ -8095,6 +8581,9 @@ function begin() {
 	makeSelectionModal();
 	addColorShortcuts();
 	updateColorPicker();
+	if(Permissions.has_color_palette(state.userModel, state.worldModel)) {
+		updateColorModalPalette();
+	}
 
 	if(state.worldModel.square_chars) defaultSizes.cellW = 18;
 	if(state.worldModel.half_chars) defaultSizes.cellH = 20;
@@ -8139,7 +8628,9 @@ function begin() {
 	protectPrecisionOption(protectPrecision);
 
 	if(state.userModel.is_superuser) {
-		w.loadScript("/static/yw/javascript/world_tools.js");
+		w.loadScript("/static/yw/javascript/world_tools.js", function() {
+			w.wtwTracker = new WTWTracker(w);
+		});
 	}
 	
 	if(state.worldModel.default_script_path && window.URL) {

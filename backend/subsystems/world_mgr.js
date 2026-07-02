@@ -73,6 +73,7 @@ var world_default_props = {
 	square_chars: false,
 	no_log_edits: false,
 	no_chat_global: false,
+	no_anon_chat: false,
 	no_copy: false,
 	half_chars: false,
 	char_rate: "",
@@ -88,7 +89,11 @@ var world_default_props = {
 	meta_desc: "",
 	priv_note: "",
 	write_int: -1,
-	ownership_change_date: 0
+	ownership_change_date: 0,
+	color_palette_enabled: false,
+	color_palette: null,
+	bg_color_palette_enabled: false,
+	bg_color_palette: null
 };
 
 function validateWorldname(name) {
@@ -212,6 +217,7 @@ function makeWorldObject() {
 			squareChars: false,
 			noLogEdits: false,
 			noChatGlobal: false,
+			noAnonChat: false,
 			noCopy: false,
 			halfChars: false,
 			charRate: "",
@@ -272,6 +278,33 @@ function normWorldProp(val, propName) {
 	return val;
 }
 
+// Decode the color palette value from rgb24 base64 string
+function convertColorPaletteFromString(string) {
+	if(!string) return null;
+	var decoded;
+	try {
+		decoded = Buffer.from(string, "base64");
+	} catch(e) {
+		return [0];
+	}
+	return Array.from(decoded).reduce((acc, val, idx) => {
+		if(idx % 3 == 0) acc.push([]);
+		acc.at(-1).push(val);
+		return acc;
+	}, []).map(v => v[2] + v[1] * 256 + v[0] * 65536);
+}
+
+// Encode the color palette value into rgb24 base64 string
+function convertColorPaletteToString(list) {
+	if(!list) return null;
+	return Buffer.from(
+		list.sort((a, b) => a - b)
+			.filter((elm, idx, arr) => elm != arr[idx - 1])
+			.map(v => [v >> 16 & 0xFF, v >> 8 & 0xFF, v & 0xFF])
+			.flat()
+	).toString("base64");
+}
+
 function loadWorldIntoObject(world, wobj) {
 	var wprops = JSON.parse(world.properties);
 
@@ -310,6 +343,7 @@ function loadWorldIntoObject(world, wobj) {
 	wobj.opts.squareChars = getAndProcWorldProp(wprops, "square_chars");
 	wobj.opts.noLogEdits = getAndProcWorldProp(wprops, "no_log_edits");
 	wobj.opts.noChatGlobal = getAndProcWorldProp(wprops, "no_chat_global");
+	wobj.opts.noAnonChat = getAndProcWorldProp(wprops, "no_anon_chat");
 	wobj.opts.noCopy = getAndProcWorldProp(wprops, "no_copy");
 	wobj.opts.halfChars = getAndProcWorldProp(wprops, "half_chars");
 	wobj.opts.charRate = getAndProcWorldProp(wprops, "char_rate");
@@ -318,6 +352,10 @@ function loadWorldIntoObject(world, wobj) {
 	wobj.opts.privNote = getAndProcWorldProp(wprops, "priv_note");
 	wobj.opts.writeInt = getAndProcWorldProp(wprops, "write_int");
 	wobj.opts.defaultScriptPath = getAndProcWorldProp(wprops, "default_script_path");
+	wobj.opts.colorPaletteEnabled = getAndProcWorldProp(wprops, "color_palette_enabled");
+	wobj.opts.colorPalette = convertColorPaletteFromString(getAndProcWorldProp(wprops, "color_palette"));
+	wobj.opts.bgColorPaletteEnabled = getAndProcWorldProp(wprops, "bg_color_palette_enabled");
+	wobj.opts.bgColorPalette = convertColorPaletteFromString(getAndProcWorldProp(wprops, "bg_color_palette"));
 
 	wobj.background.url = getAndProcWorldProp(wprops, "background");
 	wobj.background.x = getAndProcWorldProp(wprops, "background_x");
@@ -467,6 +505,7 @@ async function commitWorld(world) {
 		"opts/squareChars",
 		"opts/noLogEdits",
 		"opts/noChatGlobal",
+		"opts/noAnonChat",
 		"opts/noCopy",
 		"opts/halfChars",
 		"opts/charRate",
@@ -475,6 +514,10 @@ async function commitWorld(world) {
 		"opts/privNote",
 		"opts/writeInt",
 		"opts/defaultScriptPath",
+		"opts/colorPaletteEnabled",
+		"opts/colorPalette",
+		"opts/bgColorPaletteEnabled",
+		"opts/bgColorPalette",
 		"background/url",
 		"background/x",
 		"background/y",
@@ -500,6 +543,7 @@ async function commitWorld(world) {
 		square_chars: world.opts.squareChars,
 		no_log_edits: world.opts.noLogEdits,
 		no_chat_global: world.opts.noChatGlobal,
+		no_anon_chat: world.opts.noAnonChat,
 		no_copy: world.opts.noCopy,
 		half_chars: world.opts.halfChars,
 		char_rate: world.opts.charRate,
@@ -516,7 +560,11 @@ async function commitWorld(world) {
 		background_alpha: world.background.alpha,
 		default_script_path: world.opts.defaultScriptPath,
 		views: world.views,
-		ownership_change_date: world.ownershipChangeDate
+		ownership_change_date: world.ownershipChangeDate,
+		color_palette_enabled: world.opts.colorPaletteEnabled,
+		color_palette: convertColorPaletteToString(world.opts.colorPalette),
+		bg_color_palette_enabled: world.opts.bgColorPaletteEnabled,
+		bg_color_palette: convertColorPaletteToString(world.opts.bgColorPalette)
 	};
 
 	// if a property is a default value, delete it from the world's config object

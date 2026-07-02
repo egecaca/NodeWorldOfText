@@ -594,9 +594,17 @@ function draw2by3Char(charCode, textRender, x, y, width, height) {
 	if(charCode >= 0x1FB14 && charCode <= 0x1FB27) code = charCode - 0x1FB00 + 2;
 	if(charCode >= 0x1FB28 && charCode <= 0x1FB3B) code = charCode - 0x1FB00 + 3;
 	textRender.beginPath();
-	for(var i = 0; i < 6; i++) {
-		if(!(code >> i & 1)) continue;
-		textRender.rect(x + (width / 2) * (i & 1), y + (height / 3) * (i >> 1), width / 2, height / 3);
+	for(var py = 0; py < 3; py++) {
+		var idx = py * 2;
+		if(code >> idx & 1) {
+			if (code >> idx & 2) {
+				textRender.rect(x, y + py * (height / 3), width, height / 3);
+			} else {
+				textRender.rect(x, y + py * (height / 3), width / 2, height / 3);
+			}
+		} else if (code >> idx & 2) {
+			textRender.rect(x + (width / 2), y + py * (height / 3), width / 2, height / 3);
+		}
 	}
 	textRender.fill();
 }
@@ -672,11 +680,15 @@ function draw2by4Char(charCode, textRender, x, y, width, height) {
 	if(!code) return false;
 	textRender.beginPath();
 	for(var py = 0; py < 4; py++) {
-		for(var px = 0; px < 2; px++) {
-			var idx = py * 2 + px;
-			if(code >> idx & 1) {
-				textRender.rect(x + px * (width / 2), y + py * (height / 4), width / 2, height / 4);
+		var idx = py * 2;
+		if(code >> idx & 1) {
+			if (code >> idx & 2) {
+				textRender.rect(x, y + py * (height / 4), width, height / 4);
+			} else {
+				textRender.rect(x, y + py * (height / 4), width / 2, height / 4);
 			}
+		} else if (code >> idx & 2) {
+			textRender.rect(x + (width / 2), y + py * (height / 4), width / 2, height / 4);
 		}
 	}
 	textRender.fill();
@@ -754,21 +766,12 @@ function drawBlockChar(charCode, textRender, x, y, cellW, cellH, altGrid) {
     }
 }
 
-function dispatchCharClientHook(cCode, textRender, tileX, tileY, x, y, clampW, clampH) {
+function dispatchCharClientHook(cCode, textRender, tileX, tileY, charX, charY, offsetX, offsetY, cellW, cellH) {
 	var funcs = specialClientHooks.renderchar;
 	if(!funcs.length) return false;
 	for(var i = 0; i < funcs.length; i++) {
 		var func = funcs[i];
-		// duplicate from drawBlockChar - needs refactoring
-		var tmpCellW = clampW / tileC;
-		var tmpCellH = clampH / tileR;
-		var sx = Math.floor(x * tmpCellW);
-		var sy = Math.floor(y * tmpCellH);
-		var ex = Math.floor((x + 1) * tmpCellW);
-		var ey = Math.floor((y + 1) * tmpCellH);
-		tmpCellW = ex - sx;
-		tmpCellH = ey - sy;
-		var status = func(cCode, textRender, tileX, tileY, x, y, sx, sy, tmpCellW, tmpCellH);
+		var status = func(cCode, textRender, tileX, tileY, charX, charY, offsetX, offsetY, cellW, cellH);
 		if(status) {
 			return true;
 		}
@@ -886,7 +889,7 @@ function renderChar(textRender, offsetX, offsetY, char, color, cellW, cellH, pro
 	}
 
 	if(((specialClientHookMap >> 0) & 1) && !isOverflow) {
-		var status = dispatchCharClientHook(cCode, textRender, tileX, tileY, charX, charY, cellW, cellH);
+		var status = dispatchCharClientHook(cCode, textRender, tileX, tileY, charX, charY, fontX, fontY, cellW, cellH);
 		if(status) {
 			return true;
 		}
@@ -1203,6 +1206,12 @@ function renderContent(textRenderCtx, tileX, tileY, clampW, clampH, offsetX, off
 			var offX = sx + offsetX;
 			var offY = sy + offsetY;
 
+			if(suppressImages) {
+				if((tile.color_bitmap?.[(y * tileC + x) >> 3] & 7) && isValidSpecialSymbol(char.codePointAt()))  {
+					color = 0;
+				}
+			}
+
 			var dChar = renderChar(textRenderCtx, offX, offY, char, color, tmpCellW, tmpCellH, protValue, cellLinkType, tileColBgCell, x, y, tileX, tileY, charOverflowMode);
 			if(dChar) {
 				hasDrawn = true;
@@ -1219,17 +1228,22 @@ function renderCellBgColors(textRenderCtx, tileX, tileY, clampW, clampH) {
 	var bgcolors = tile.properties.bgcolor;
 	var hasDrawn = false;
 	if(!bgcolors) return;
-	for(var y = 0; y < tileR; y++) {
-		for(var x = 0; x < tileC; x++) {
-			var bgColor = bgcolors[y * tileC + x];
+	for(let y = 0; y < tileR; y++) {
+		for(let x = 0; x < tileC; x++) {
+			let bgColor = bgcolors[y * tileC + x];
+			if(suppressImages) {
+				if(tile.bgcolor_bitmap?.[(y * tileC + x) >> 3] & 7) {
+					continue;
+				}
+			}
 			if(bgColor == -1) continue;
 			if(containsCursor && cursorCoords && cursorCoords[2] == x && cursorCoords[3] == y) continue;
-			var tmpCellW = clampW / tileC;
-			var tmpCellH = clampH / tileR;
-			var sx = Math.floor(x * tmpCellW);
-			var sy = Math.floor(y * tmpCellH);
-			var ex = Math.floor((x + 1) * tmpCellW);
-			var ey = Math.floor((y + 1) * tmpCellH);
+			let tmpCellW = clampW / tileC;
+			let tmpCellH = clampH / tileR;
+			let sx = Math.floor(x * tmpCellW);
+			let sy = Math.floor(y * tmpCellH);
+			let ex = Math.floor((x + 1) * tmpCellW);
+			let ey = Math.floor((y + 1) * tmpCellH);
 			textRenderCtx.fillStyle = `rgb(${bgColor >> 16 & 255},${bgColor >> 8 & 255},${bgColor & 255})`;
 			textRenderCtx.fillRect(sx, sy, ex - sx, ey - sy);
 			hasDrawn = true;
@@ -1241,6 +1255,8 @@ function renderCellBgColors(textRenderCtx, tileX, tileY, clampW, clampH) {
 function drawTile(tileX, tileY) {
 	var tile = Tile.get(tileX, tileY);
 	if(!tile) return;
+
+	w.emit("tileDraw", { tileX, tileY, tile });
 
 	var hasDrawn = false;
 

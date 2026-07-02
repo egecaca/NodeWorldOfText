@@ -117,7 +117,8 @@ var sql_edits_init = "./backend/edits.sql";
 
 var serverSettings = {
 	announcement: "",
-	chatGlobalEnabled: "1"
+	chatGlobalEnabled: "1",
+	chatGlobalNoAnon: "0"
 };
 var serverSettingsStatus = {};
 
@@ -559,6 +560,9 @@ var pages = {
 		verify_email: require("./backend/pages/accounts/verify_email.js")
 	},
 	admin: {
+		api: {
+			restrictions: require("./backend/pages/admin/api/restrictions.js")
+		},
 		administrator: require("./backend/pages/admin/administrator.js"),
 		backgrounds: require("./backend/pages/admin/backgrounds.js"),
 		emotes: require("./backend/pages/admin/emotes.js"),
@@ -850,6 +854,19 @@ async function fetchCloudflareIPs(ip_type) {
 
 function setupHTTPServer() {
 	httpServer = new serverUtil.HTTPServer(settings.port, global_data);
+
+	if(settings.ssl_enabled) {
+		var sslConf = settings.ssl || {};
+		var priv = sslConf.private_key;
+		var cert = sslConf.cert;
+		var chain = sslConf.chain;
+		var ok = httpServer.setSSLConfig(true, priv, cert, chain);
+		if(!ok) {
+			console.log("SSL configuration failed or files missing. Falling back to HTTP.");
+		} else {
+			console.log("SSL enabled. HTTPS server will be used.");
+		}
+	}
 
 	httpServer.setPageTree(pages);
 	httpServer.setDefaultTemplateData("loginPath", loginPath);
@@ -1181,6 +1198,7 @@ function createEndpoints(server) {
 	server.registerEndpoint("administrator/monitor/", (settings && settings.monitor && settings.monitor.redirect) ? settings.monitor.redirect : null);
 	server.registerEndpoint("administrator/shell", pages.admin.shell);
 	server.registerEndpoint("administrator/restrictions", pages.admin.restrictions, { binary_post_data: true });
+	server.registerEndpoint("administrator/api/restrictions", pages.admin.api.restrictions);
 
 	server.registerEndpoint("script_manager/", pages.script_manager);
 	server.registerEndpoint("script_manager/edit/*", pages.script_edit);
@@ -1401,7 +1419,9 @@ function setupMonitorServer() {
 			port: settings.monitor.port,
 			ip: settings.monitor.ip,
 			user: settings.monitor.credentials.user,
-			pass: settings.monitor.credentials.pass
+			pass: settings.monitor.credentials.pass,
+			ssl_enabled: settings.ssl_enabled || false,
+			ssl_config: settings.ssl || null
 		}
 	});
 	monitorWorker.on("error", function(e) {
@@ -1431,6 +1451,8 @@ function loadRestrictionsList() {
 			var list = restr_cache.toString("utf8").replace(/\r\n/g, "\n").split("\n");
 			var result = restrictions.procRest(list);
 			restrictions.setRestrictions(result.groups);
+			restrictions.setRestrictionsFlatList(result.raw);
+			restrictions.setRestrictionsFlatListStr(result.rawStr);
 		}
 		if(restr_cg1_cache) {
 			var list = restr_cg1_cache.toString("utf8").replace(/\r\n/g, "\n").split("\n");

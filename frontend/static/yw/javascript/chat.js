@@ -192,8 +192,12 @@ register_chat_command("gridsize", function (args) {
 	if(width > 160) width = 160;
 	if(height < 4) height = 4;
 	if(height > 144) height = 144;
+	var originalW = defaultSizes.cellW;
+	var originalH = defaultSizes.cellH;
 	defaultSizes.cellW = width;
 	defaultSizes.cellH = height;
+	positionX *= width / originalW;
+	positionY *= height / originalH;
 	updateScaleConsts();
 	w.reloadRenderer();
 	clientChatResponse("Changed grid size to " + width + "x" + height);
@@ -426,7 +430,7 @@ elm.chat_open.addEventListener("click", function() {
 	if(!screenRatio) screenRatio = 1;
 	var virtWidth = owotWidth / screenRatio;
 	if(chatWidth > virtWidth) {
-		resizeChat(virtWidth - 2, chatHeight);
+		resizeElement(elm.chat_window, virtWidth - 2, chatHeight);
 	}
 	if(!initChatOpen) {
 		initChatOpen = true;
@@ -538,7 +542,7 @@ function resizable_chat() {
 		} else if(resize_right) {
 			width_delta = offX;
 		}
-		var res = resizeChat(chatWidth + width_delta, chatHeight + height_delta);
+		var res = resizeElement(elm.chat_window, chatWidth + width_delta, chatHeight + height_delta);
 		if(resize_top && !snap_bottom) {
 			chat_window.style.top = (elmY + (chatHeight - res[1])) + "px";
 		}
@@ -702,7 +706,9 @@ function addChat(chatfield, id, type, nickname, message, realUsername, op, admin
 	insertNewChatElements();
 }
 
-async function buildChatElement(field, id, type, nickname, message, realUsername, op, admin, staff, color, date, dataObj) {
+function buildChatElement(field, id, type, nickname, message, realUsername, op, admin, staff, color, date, dataObj) {
+	var rawNickname = nickname;
+	var rawMessage = message;
 	var dateStr = "";
 	if(date) dateStr = convertToDate(date);
 	var pm = dataObj.privateMessage;
@@ -846,21 +852,14 @@ async function buildChatElement(field, id, type, nickname, message, realUsername
 				emoteBuffer += chr;
 				if (emoteMode) {
 					var emoteName = emoteBuffer.slice(1, -1);
-					await new Promise((res, rej) => {
-						var img = new Image();
-						img.alt = emoteName;
-						img.title = `:${emoteName}:`
-						img.classList.add("chat_emote");
-						img.src = `/other/emotes/${emoteName}`;
-						img.onload = () => {
-							emoteMessage += img.outerHTML;
-							res();
-						}
-						img.onerror = () => {
-							emoteMessage += emoteBuffer;
-							res(); // just use alt
-						}
-					});
+
+					var img = new Image();
+					img.alt = `${emoteName}`;
+					img.title = `:${emoteName}:`
+					img.classList.add("chat_emote");
+					img.src = `/other/emotes/${emoteName}`;
+					emoteMessage += img.outerHTML;
+
 					emoteMode = false;
 					emoteBuffer = "";
 				} else {
@@ -918,10 +917,30 @@ async function buildChatElement(field, id, type, nickname, message, realUsername
 		field.scrollTop = maxScroll;
 	}
 
+	chatGroup._duplicateData = {
+		count: 1,
+		singleMessageHtml: msgDom.innerHTML,
+		expanded: false,
+		msgDom: msgDom
+	};
+	chatGroup.addEventListener("click", function() {
+		var data = this._duplicateData;
+		if(data && data.count > 1) {
+			data.expanded = !data.expanded;
+			updateDuplicateChatGroup(this);
+		}
+	});
+
 	var chatRec = {
 		id: id, date: date,
 		field: field,
-		element: chatGroup
+		element: chatGroup,
+		type: type,
+		rawNickname: rawNickname,
+		realUsername: realUsername,
+		rawMessage: rawMessage,
+		message: message,
+		dataObj: dataObj
 	};
 	if(field == elm.page_chatfield) {
 		chatRecordsPage.push(chatRec);
@@ -938,9 +957,49 @@ async function buildChatElement(field, id, type, nickname, message, realUsername
 	}
 }
 
+function updateDuplicateChatGroup(chatGroup) {
+	var data = chatGroup._duplicateData;
+	if(!data) return;
+	if(data.count <= 1) {
+		chatGroup.style.cursor = "default";
+		chatGroup.title = "";
+		data.expanded = false;
+		data.msgDom.innerHTML = data.singleMessageHtml;
+		return;
+	}
+	chatGroup.style.cursor = "pointer";
+	chatGroup.title = "Click to expand repeated messages";
+	if(data.expanded) {
+		var repeated = [];
+		for(var i = 0; i < data.count; i++) {
+			repeated.push(data.singleMessageHtml);
+		}
+		data.msgDom.innerHTML = repeated.join("<br>");
+	} else {
+		data.msgDom.innerHTML = data.singleMessageHtml + " [x" + data.count + "]";
+	}
+}
+
+function isChatMessageDuplicateRecord(chatRec, message) {
+	if(!chatRec || !chatRec.element || !chatRec.element._duplicateData) return false;
+	return chatRec.id === message.id
+		&& chatRec.type === message.type
+		&& chatRec.rawNickname === message.nickname
+		&& chatRec.realUsername === message.realUsername
+		&& chatRec.rawMessage === message.message
+		&& ((chatRec.dataObj && chatRec.dataObj.privateMessage) || "") === ((message.dataObj && message.dataObj.privateMessage) || "");
+}
+
 function insertNewChatElementsIntoChatfield(chatfield, messageQueue) {
+	var records = chatfield == elm.page_chatfield ? chatRecordsPage : chatRecordsGlobal;
 	for(var i = 0; i < messageQueue.length; i++) {
 		var message = messageQueue[i];
+		var lastRec = records.length ? records[records.length - 1] : null;
+		if(lastRec && isChatMessageDuplicateRecord(lastRec, message)) {
+			lastRec.element._duplicateData.count++;
+			updateDuplicateChatGroup(lastRec.element);
+			continue;
+		}
 		buildChatElement(chatfield,
 				message.id, message.type, message.nickname, message.message,
 				message.realUsername, message.op, message.admin, message.staff,

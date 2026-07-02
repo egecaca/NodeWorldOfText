@@ -124,7 +124,10 @@ module.exports.GET = async function(req, write, server, ctx, params) {
 				char_rate: char_rate,
 				write_interval: write_int,
 				no_copy: world.opts.noCopy,
-				no_chat_global: world.opts.noChatGlobal || !isGlobalEnabled
+				no_chat_global: world.opts.noChatGlobal || !isGlobalEnabled,
+				no_anon_chat: world.opts.noAnonChat,
+				color_palette: world.opts.colorPaletteEnabled ? world.opts.colorPalette : null,
+				bg_color_palette: world.opts.bgColorPaletteEnabled ? world.opts.bgColorPalette : null
 			}
 		};
 		if(CONST.tileRows != 8) {
